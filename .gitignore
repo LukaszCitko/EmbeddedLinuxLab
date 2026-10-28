@@ -1,0 +1,4 @@
+.DS_Store
+build/
+EdgeStatusAgent/empty-uptime.txt
+EdgeStatusAgent/invalid-uptime.txt
