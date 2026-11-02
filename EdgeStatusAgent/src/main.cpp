@@ -4,6 +4,10 @@
 #include <istream>
 #include <stdexcept>
 #include <string>
+#include <chrono>
+#include <thread>
+#include <csignal>
+
 
 struct SystemSnapshot {
     double uptimeSeconds;
@@ -11,6 +15,7 @@ struct SystemSnapshot {
     double cpuTemperatureC;
     bool wifiOperstateUp;
 };
+
 
 bool isWifiOperstateUp(const std::string& state) {
     return state == "up";
@@ -62,89 +67,105 @@ double parseCpuTemperatureC(const std::string& line) {
     return static_cast<double>(milliCelsius) / 1000.0;
 }
 
+void printSnapshotJson(const SystemSnapshot& snapshot) {
+    
+    std::cout << "{\"uptime_seconds\":" << snapshot.uptimeSeconds 
+                << ",\"mem_available_kb\":" << snapshot.memAvailableKb 
+                << ",\"cpu_temperature_c\":" << snapshot.cpuTemperatureC 
+                << ",\"wifi_operstate_up\":" << (snapshot.wifiOperstateUp ? "true" : "false") << "}\n";
+}
+
+SystemSnapshot collectSnapshot(const std::string& uptimePath, const std::string& meminfoPath, const std::string& tempPath, const std::string& wifiPath) {
+    std::ifstream uptimeFile(uptimePath);
+    if (!uptimeFile) {
+        throw std::runtime_error("Cannot open file: " + uptimePath);
+    }
+
+    std::string uptimeLine;
+    if (!std::getline(uptimeFile, uptimeLine)) {
+        throw std::runtime_error("Cannot read uptime file");
+    }
+
+    std::ifstream meminfoFile(meminfoPath);
+    if (!meminfoFile) {
+        throw std::runtime_error("Cannot open file: " + meminfoPath);
+    }
+
+    std::ifstream tempFile(tempPath);
+    if (!tempFile) {
+        throw std::runtime_error("Cannot open file: " + tempPath);
+    }
+
+    std::string tempLine;
+    if (!std::getline(tempFile, tempLine)) {
+        throw std::runtime_error("Cannot read CPU temperature file");
+    }
+
+    std::ifstream wifiFile(wifiPath);
+    if (!wifiFile) {
+        throw std::runtime_error("Cannot open file: " + wifiPath);
+    }
+
+    std::string wifiState;
+    if (!std::getline(wifiFile, wifiState)) {
+        throw std::runtime_error("Cannot read Wi-Fi state file");
+    }
+
+    return SystemSnapshot{parseUptimeSeconds(uptimeLine), readMemAvailableKb(meminfoFile), parseCpuTemperatureC(tempLine), isWifiOperstateUp(wifiState)};
+}
+
+volatile std::sig_atomic_t stopRequested = 0;
+void handleStopSignal(int) {
+    stopRequested = 1;
+}
 
 int main(int argc, char* argv[]) {
 
-    std::string path = "sample-uptime.txt";
+    int firstPathIndex = 1;
+    int intervalSeconds = 0;
+    std::signal(SIGINT, handleStopSignal);
+    std::signal(SIGTERM, handleStopSignal);
+
+    if (argc > 1 && std::string(argv[1]) == "--once") {
+        firstPathIndex = 2;
+    } else if (argc > 1 && std::string(argv[1]) == "--interval") {
+        if (argc < 3) {
+            throw std::runtime_error("Missing interval value");
+        }
+
+        std::size_t parsedChars = 0;
+        intervalSeconds = std::stoi(argv[2], &parsedChars);
+        if (parsedChars != std::string(argv[2]).size() || intervalSeconds <= 0) {
+            throw std::runtime_error("Interval must be a positive integer");
+        }
+
+        firstPathIndex = 3;
+    }
+    
+
+    std::string uptimePath = "sample-uptime.txt";
     std::string meminfoPath = "sample-meminfo.txt";
     std::string tempPath = "sample-temp.txt";
     std::string wifiPath = "sample-wifi-operstate.txt";
 
-    if (argc > 1){
-        path = argv[1];
-    }
-
-    if (argc > 2) {
-        meminfoPath = argv[2];
-    }
-
-    if (argc > 3) {
-        tempPath = argv[3];
-    }
-
-    if (argc > 4) {
-        wifiPath = argv[4];
-    }
-
-    std::ifstream file(path);
-    
-    if (!file){
-        std::cerr << "Cannot open file: " << path << "\n";
-        return 1;
-    }
-    
-    std::string line;
-
-    if (!std::getline(file, line)) {
-        std::cerr << "Cannot read uptime file\n";
-        return 1;
-    }
-
-    std::ifstream meminfoFile(meminfoPath);
-
-    if (!meminfoFile) {
-        std::cerr << "Cannot open file: " << meminfoPath << '\n';
-        return 1;
-    }
-
-    std::ifstream tempFile(tempPath);
-
-    if (!tempFile) {
-        std::cerr << "Cannot open file: " << tempPath << '\n';
-        return 1;
-    }
-
-    std::string tempLine;
-
-    if (!std::getline(tempFile, tempLine)) {
-        std::cerr << "Cannot read CPU temperature file\n";
-        return 1;
-    }
+    if (argc > firstPathIndex) uptimePath = argv[firstPathIndex];
+    if (argc > firstPathIndex + 1) meminfoPath = argv[firstPathIndex + 1];
+    if (argc > firstPathIndex + 2) tempPath = argv[firstPathIndex + 2];
+    if (argc > firstPathIndex + 3) wifiPath = argv[firstPathIndex + 3];
    
-    std::ifstream wifiFile(wifiPath);
-
-    if (!wifiFile) {
-        std::cerr << "Cannot open file: " << wifiPath << '\n';
-        return 1;
-    }
-
-    std::string wifiState;
-
-    if (!std::getline(wifiFile, wifiState)) {
-        std::cerr << "Cannot read Wi-Fi state file\n";
-        return 1;
-    }
-
     try {
-        double uptimeSeconds = parseUptimeSeconds(line);
-        long long memAvailableKb = readMemAvailableKb(meminfoFile);
-        double cpuTemperatureC = parseCpuTemperatureC(tempLine);
-        bool wifiOperstateUp = isWifiOperstateUp(wifiState);
-        std::cout << "{\"uptime_seconds\":"    << uptimeSeconds 
-                  << ",\"mem_available_kb\":"  << memAvailableKb 
-                  << ",\"cpu_temperature_c\":" << cpuTemperatureC
-                  << ",\"wifi_operstate_up\":" << (wifiOperstateUp ? "true" : "false") << "}\n";
-    } catch (const std::exception& error) {
+        if (intervalSeconds == 0) {
+            SystemSnapshot snapshot = collectSnapshot(uptimePath, meminfoPath, tempPath, wifiPath);
+            printSnapshotJson(snapshot);
+        } else {
+            while (!stopRequested) {
+                SystemSnapshot snapshot = collectSnapshot(uptimePath, meminfoPath, tempPath, wifiPath);
+                printSnapshotJson(snapshot);
+                std::this_thread::sleep_for(std::chrono::seconds(intervalSeconds));
+            }
+        }
+    }   
+    catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
     }
