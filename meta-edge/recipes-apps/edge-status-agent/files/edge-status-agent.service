@@ -1,0 +1,15 @@
+[Unit]
+Description=Edge Status Agent
+After=wpa_supplicant@wlan0.service systemd-networkd.service
+
+[Service]
+Type=simple
+User=lukasz
+ExecStart=/usr/bin/EdgeStatusAgent --interval 5 /proc/uptime /proc/meminfo /sys/class/thermal/thermal_zone0/temp /sys/class/net/wlan0/operstate
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

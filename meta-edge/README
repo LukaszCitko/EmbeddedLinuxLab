@@ -1,0 +1,15 @@
+# meta-edge
+
+A Yocto layer for Raspberry Pi 3. It builds `edge-image` with EdgeStatusAgent, Wi-Fi configuration, SSH access, and a systemd service that starts the application.
+
+## Wi-Fi
+
+Before building the image, copy `recipes-connectivity/edge-network/files/wpa_supplicant-wlan0.conf.example` to `recipes-connectivity/edge-network/files/wpa_supplicant-wlan0.conf`. Replace the example SSID and password with your own. The file containing your credentials is ignored by Git.
+
+## SSH access
+
+Before building the image, copy the public SSH key from the computer you will use to log in to `recipes-core/edge-access/files/authorized_keys`. This file is ignored by Git. Never copy your private key into the layer.
+
+## Application source
+
+`recipes-apps/edge-status-agent/files/EdgeStatusAgent` is a copy of the application in the repository’s top-level `EdgeStatusAgent` directory. After changing the application, update this copy before building a new image.

@@ -1,0 +1,5 @@
+country=TR
+network={
+    ssid="YOUR_WIFI_SSID"
+    psk="YOUR_WIFI_PASSWORD"
+}
